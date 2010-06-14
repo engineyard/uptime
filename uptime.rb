@@ -6,6 +6,9 @@ require 'uri'
 
 DEBUG = false
 
+TRIM_PERCENTAGE = 1.00
+TRIM_FACTOR = TRIM_PERCENTAGE / 100
+
 class Failure
  attr :date
  attr :error
@@ -21,10 +24,12 @@ end
 class Detail
   include Comparable
 
+  attr_accessor :id
   attr_accessor :name
   attr :failures
 
-  def initialize(name)
+  def initialize(id,name)
+    @id       = id
     @name     = name
     @failures = []
   end
@@ -181,7 +186,7 @@ ids.each do |id|
                      cookie)
 
   if response.body =~ /Failure Log for ([^<]+)/
-    collected_data[id] = Detail.new $1
+    collected_data[id] = Detail.new(id,$1)
   end
 
   failures_in(response) do |date,error,rtime|
@@ -201,4 +206,38 @@ end
 
 total_monitors = collected_data.keys.length.to_f
 
+puts
 puts "Average uptime across #{total_monitors.to_i} monitors: #{ '%3.3f' % (aggregate_uptime / total_monitors)}"
+
+trim_count = (total_monitors * TRIM_FACTOR).to_i
+
+# remove top 5%
+
+puts
+puts "Removing top #{TRIM_PERCENTAGE}% (#{trim_count}) of uptimes..."
+
+collected_data.values.sort[0..trim_count].each do |detail|
+  puts "Removing #{detail.name}: #{detail.downs} downs, #{detail.uptime_to_s(days)}"
+  collected_data.delete(detail.id)
+end
+
+# remove bottom 5%
+
+puts
+puts "Removing bottom #{TRIM_PERCENTAGE}% (#{trim_count}) of uptimes..."
+
+collected_data.values.sort.reverse[0..trim_count].each do |detail|
+  puts "Removing #{detail.name}: #{detail.downs} downs, #{detail.uptime_to_s(days)}"
+  collected_data.delete(detail.id)
+end
+
+aggregate_uptime = 0.0
+
+collected_data.values.each do |detail|
+  aggregate_uptime += ( detail.uptime(days) * 100 )
+end
+
+total_monitors = collected_data.keys.length.to_f
+
+puts
+puts "Average uptime after trimming top and bottom #{TRIM_PERCENTAGE}%, #{total_monitors.to_i} monitors: #{ '%3.3f' % (aggregate_uptime / total_monitors)}"
