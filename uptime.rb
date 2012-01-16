@@ -84,7 +84,19 @@ def get_url(uri,cookie=nil)
   end
   request = Net::HTTP::Get.new(url.path + '?' + url.query)
   request['cookie'] = cookie unless cookie.nil?
-  http.request(request)
+
+  response = false
+
+  while ! response do
+    response = begin
+                 response = http.request(request)
+               rescue Timeout::Error
+                 STDOUT.print "retrying, "; STDOUT.flush
+                 response = false
+               end
+  end
+
+  response
 end
 
 def ids_in(response)
@@ -100,9 +112,12 @@ def get_ids(cookie)
 
   i = 1
 
+  STDOUT.print "Getting ids from page "; STDOUT.flush
+
   loop do
+    STDOUT.print "#{i}, "; STDOUT.flush
+
     url = "https://www.siteuptime.com/users/services.php?OrderBy=Name&Page=#{i}"
-    puts "Getting ids from page #{i}..."
 
     response = get_url(url,cookie)
 
@@ -118,6 +133,8 @@ def get_ids(cookie)
 
     i += 1
   end
+
+  puts
 
   ids
 end
@@ -156,19 +173,27 @@ end
 
 collected_data = {}
 
-puts 'Please enter SiteUpTime credentials...'
+USERNAME = ARGV[0]
+PASSWORD = ARGV[1]
 
-puts 'Enter USERNAME: '
-USERNAME = gets.chomp
+day1,month1,year1 = ARGV[2].chomp.split('/').collect { |s| s.to_i }
+day2,month2,year2 = ARGV[3].chomp.split('/').collect { |s| s.to_i }
 
-puts 'Enter PASSWORD: '
-PASSWORD = gets.chomp
+unless USERNAME
+  puts 'Please enter SiteUpTime credentials...'
 
-puts 'Enter beginning date: (mm/d/yyyy)'
-day1,month1,year1 = gets.chomp.split('/').collect { |s| s.to_i }
+  puts 'USERNAME: '
+  USERNAME = gets.chomp
 
-puts 'Enter ending date: (mm/d/yyyyy)'
-day2,month2,year2 = gets.chomp.split('/').collect { |s| s.to_i }
+  puts 'PASSWORD: '
+  PASSWORD = gets.chomp
+
+  puts 'Beginning date: (mm/d/yyyy)'
+  day1,month1,year1 = gets.chomp.split('/').collect { |s| s.to_i }
+
+  puts 'Ending date: (mm/d/yyyyy)'
+  day2,month2,year2 = gets.chomp.split('/').collect { |s| s.to_i }
+end
 
 days = day2 - day1 + 1
 
@@ -177,8 +202,11 @@ cookie = login
 
 ids = get_ids(cookie)
 
+STDOUT.print "Getting name and failures for id "; STDOUT.flush
+
 ids.each do |id|
-  puts "Getting name and failures for id #{id}"
+  STDOUT.print "#{id}, "; STDOUT.flush
+
   response = get_url("https://www.siteuptime.com/users/statistics.php?" +
                      "MonthYear=#{year1}-#{month1}&Day=#{day1}&"        +
                      "MonthYear2=#{year2}-#{month2}&Day2=#{day2}&"      +
@@ -193,6 +221,8 @@ ids.each do |id|
     collected_data[id].add_failure(date,error,rtime)
   end
 end
+
+puts
 
 collected_data.values.sort.reverse.each do |detail|
   puts "#{detail.name}: #{detail.downs} downs, #{detail.uptime_to_s(days)}"

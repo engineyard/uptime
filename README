@@ -2,8 +2,8 @@ Screen scraper for SiteUpTime.com
 
   Issues:
 
-		1) Doesn't integrate with Salesforce. Would be good to aggregate monitor
-		   results on a per-customer basis.
+    1) Doesn't integrate with Salesforce. Would be good to aggregate monitor
+       results on a per-customer basis.
     2) Doesn't allow for customers not on board the entire period. Results
        will be skewed up for those cases.
     3) Doesn't allow for maintenance windows. Results will be skewed down for
