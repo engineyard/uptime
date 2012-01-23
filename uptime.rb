@@ -6,7 +6,7 @@ require 'uri'
 
 DEBUG = false
 
-TRIM_PERCENTAGE = 1.00
+TRIM_PERCENTAGE = 2.00
 TRIM_FACTOR = TRIM_PERCENTAGE / 100
 
 class Failure
@@ -42,9 +42,12 @@ class Detail
     @failures.length
   end
 
+  def total_timeslots(days)
+    (days * 24 * 30).to_f
+  end
+
   def uptime(days)
-    total_timeslots = (days * 24 * 30).to_f
-    ( total_timeslots - downs ) / total_timeslots
+    ( total_timeslots(days) - downs ) / total_timeslots(days)
   end
 
   def uptime_to_s(days)
@@ -86,12 +89,14 @@ def get_url(uri,cookie=nil)
   request['cookie'] = cookie unless cookie.nil?
 
   response = false
+  tries    = 0
 
-  while ! response do
+  while ! response and tries < 5 do
+    tries += 1
     response = begin
                  response = http.request(request)
-               rescue Timeout::Error
-                 STDOUT.print "retrying, "; STDOUT.flush
+               rescue Timeout::Error, EOFError
+                 STDOUT.print "retry \##{tries}, "; STDOUT.flush
                  response = false
                end
   end
@@ -176,8 +181,8 @@ collected_data = {}
 USERNAME = ARGV[0]
 PASSWORD = ARGV[1]
 
-day1,month1,year1 = ARGV[2].chomp.split('/').collect { |s| s.to_i }
-day2,month2,year2 = ARGV[3].chomp.split('/').collect { |s| s.to_i }
+month1,day1,year1 = ARGV[2].chomp.split('/').collect { |s| s.to_i }
+month2,day2,year2 = ARGV[3].chomp.split('/').collect { |s| s.to_i }
 
 unless USERNAME
   puts 'Please enter SiteUpTime credentials...'
@@ -188,14 +193,17 @@ unless USERNAME
   puts 'PASSWORD: '
   PASSWORD = gets.chomp
 
-  puts 'Beginning date: (mm/d/yyyy)'
-  day1,month1,year1 = gets.chomp.split('/').collect { |s| s.to_i }
+  puts 'Beginning date: (mm/dd/yyyy)'
+  month1,day1,year1 = gets.chomp.split('/').collect { |s| s.to_i }
 
-  puts 'Ending date: (mm/d/yyyyy)'
-  day2,month2,year2 = gets.chomp.split('/').collect { |s| s.to_i }
+  puts 'Ending date: (mm/dd/yyyyy)'
+  month2,day2,year2 = gets.chomp.split('/').collect { |s| s.to_i }
 end
 
 days = day2 - day1 + 1
+
+puts "SiteUpTime report for #{month1}/#{day1}/#{year1}-#{month2}/#{day2}/#{year2}"
+puts days.to_s + ' days, ' + Detail.new(0,'dummy').total_timeslots(days).to_s + ' total timeslots'
 
 puts "Logging in..."
 cookie = login
@@ -213,12 +221,14 @@ ids.each do |id|
                      "Action=FailuresHistory&UserServiceId=#{id.to_s}",
                      cookie)
 
-  if response.body =~ /Failure Log for ([^<]+)/
-    collected_data[id] = Detail.new(id,$1)
-  end
+  if response
+    if response.body =~ /Failure Log for ([^<]+)/
+      collected_data[id] = Detail.new(id,$1)
 
-  failures_in(response) do |date,error,rtime|
-    collected_data[id].add_failure(date,error,rtime)
+      failures_in(response) do |date,error,rtime|
+        collected_data[id].add_failure(date,error,rtime)
+      end
+    end
   end
 end
 
@@ -241,7 +251,7 @@ puts "Average uptime across #{total_monitors.to_i} monitors: #{ '%3.3f' % (aggre
 
 trim_count = (total_monitors * TRIM_FACTOR).to_i
 
-# remove top 5%
+# remove top TRIM_PERCENTAGE
 
 puts
 puts "Removing top #{TRIM_PERCENTAGE}% (#{trim_count}) of uptimes..."
@@ -251,7 +261,7 @@ collected_data.values.sort[0..trim_count].each do |detail|
   collected_data.delete(detail.id)
 end
 
-# remove bottom 5%
+# remove bottom TRIM_PERCENTAGE
 
 puts
 puts "Removing bottom #{TRIM_PERCENTAGE}% (#{trim_count}) of uptimes..."
